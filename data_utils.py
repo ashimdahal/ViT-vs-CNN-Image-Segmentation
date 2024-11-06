@@ -16,7 +16,6 @@ import os, json
 @dataclass
 class CONSTS:
     id2label = {
-                15:  'unlabeled',
                 0: 'ship',
                 1: 'storage_tank',
                 2: 'baseball_diamond',
@@ -31,10 +30,10 @@ class CONSTS:
                 11: 'Roundabout',
                 12: 'Soccer_ball_field',
                 13: 'plane',
-                14: 'Harbor'
+                14: 'Harbor',
+                15:  'background',
             }
     mapping = {
-            (0, 0, 0): 15,# 'unlabeled',
             (0, 0, 63): 0,# 'ship',
             (0, 63, 63): 1, #'storage_tank',
             (0, 63, 0): 2, #'baseball_diamond',
@@ -49,7 +48,8 @@ class CONSTS:
             (0, 191, 127): 11, #'Roundabout',
             (0, 127, 191): 12, #'Soccer_ball_field',
             (0, 127, 255): 13, #'plane',
-            (0, 100, 155): 14 #'Harbor'
+            (0, 100, 155): 14, #'Harbor'
+            (0, 0, 0): 15,# 'unlabeled',
         }
         
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -96,39 +96,30 @@ class UnNormalize(object):
 
 class Validate:
 
-    @torch.inference_mode()
     @torch.no_grad()
-    def calculate_iou(prediction, target, num_classes, ignore_index=-1):
-        # Ignore predictions where target is ignore_index
-        valid_mask = (target != ignore_index)    
-        # store all intersection over union for all classes
-        iou_per_class = []
-        for cls in range(num_classes):        
-            # Create binary masks for this class
-            pred_mask = (prediction == cls)
-            target_mask = (target == cls)
-
-            # Skip class if there are no predictions or targets for this class
-            if pred_mask.sum() == 0 and target_mask.sum() == 0:
-                continue  # No need to compute IoU for empty classes
-
-            pred_mask = pred_mask & valid_mask
-            target_mask = target_mask & valid_mask
-            
-            # Calculate intersection and union
-            intersection = (pred_mask & target_mask).sum((1,2)).float()
-            union = (pred_mask | target_mask).sum((1,2)).float()
-
-                
-            iou_score = (intersection+1e-8)/(union + 1e-8)
-            iou_per_class.append(iou_score)
-            
-            
-        return torch.mean(torch.stack(iou_per_class))
+    def calculate_accuracy(prediction, target, ignore_class=CONSTS.ignore_index):
+        # Create a mask to ignore the specified class in the target
+        valid_mask = (target != ignore_class)
+        
+        # Compute the total number of valid pixels (not ignored)
+        total_valid_pixels = valid_mask.sum().item()
+        
+        if total_valid_pixels == 0:
+            return 0.0  # If there are no valid pixels, return 0 accuracy
+        
+        # Compute the number of correct predictions where the mask is valid
+        correct_predictions = (prediction == target) & valid_mask
+        correct_count = correct_predictions.sum().item()
+        
+        # Calculate accuracy as the ratio of correct valid predictions to total valid pixels
+        accuracy = correct_count / total_valid_pixels
+        
+        return accuracy
 
     @torch.no_grad()
-    @torch.inference_mode()
-    def calculate_dice_score(prediction, target, num_classes, ignore_index=-1):
+    def calculate_dice_score(prediction, target, num_classes=15, ignore_index=CONSTS.ignore_index, per_class=False):
+        if per_class:
+            return Validate.calculate_iou_per_class(prediction, target, num_classes)
         # Ignore predictions where target is ignore_index
         valid_mask = (target != ignore_index)
 
@@ -154,59 +145,121 @@ class Validate:
         # Return the mean Dice score
         return torch.mean(torch.stack(dice_scores))
 
+    @torch.no_grad()
+    def calculate_iou(prediction, target, num_classes=15, ignore_index=CONSTS.ignore_index, per_class=False):
+        if per_class:
+            return Validate.calculate_iou_per_class(prediction, target, num_classes)
+        # Ignore predictions where target is ignore_index
+        valid_mask = (target != ignore_index)    
+        # store all intersection over union for all classes
+        iou_per_class = []
+        for cls in range(num_classes):        
+            # Create binary masks for this class
+            pred_mask = (prediction == cls)
+            target_mask = (target == cls)
+            
+            # Skip class if there are no predictions or targets for this class
+            if pred_mask.sum() == 0 and target_mask.sum() == 0:
+                continue  # No need to compute IoU for empty classes
+
+            pred_mask = pred_mask & valid_mask
+            target_mask = target_mask & valid_mask
+            
+            # Calculate intersection and union
+            intersection = (pred_mask & target_mask).sum((1,2)).float()
+            union = (pred_mask | target_mask).sum((1,2)).float()
+
+                
+            iou_score = (intersection+1e-8)/(union + 1e-8)
+            iou_per_class.append(iou_score)
+            
+        return torch.mean(torch.stack(iou_per_class))
+
+    @torch.no_grad()
+    def calculate_iou_per_class(prediction, target, num_classes, ignore_index = CONSTS.ignore_index):
+
+        iou_per_class = torch.zeros(num_classes)
+        valid_mask = (target!=ignore_index)
+        for cls in range(num_classes):        
+            # Create binary masks for this class
+            pred_mask = (prediction == cls)
+            target_mask = (target == cls)
+
+            # Skip class if there are no predictions or targets for this class
+            if pred_mask.sum() == 0 and target_mask.sum() == 0:
+                continue  # No need to compute IoU for empty classes
+
+            pred_mask = pred_mask & valid_mask
+            target_mask = target_mask & valid_mask
+            
+            # Calculate intersection and union
+            intersection = (pred_mask & target_mask).sum((1,2)).float()
+            union = (pred_mask | target_mask).sum((1,2)).float()
+
+            iou_score = (intersection+1e-8)/(union + 1e-8)
+            iou_per_class[cls] = torch.mean(iou_score)
+
+        return iou_per_class
+
+    @torch.no_grad()
+    def calculate_dice_score_per_class(prediction, target, num_classes, ignore_index = CONSTS.ignore_index):
+        dice_score_per_class = torch.zeros(num_classes)
+        valid_mask = (target!=ignore_index)
+
+        for cls in range(num_classes):
+            pred_mask = (prediction ==cls)
+            target_mask = (target==cls)
+
+            if pred_mask.sum() == 0 and target_mask.sum() == 0:
+                continue
+
+            pred_mask = pred_mask & valid_mask
+            target_mask = target_mask & valid_mask
+
+            intersection = (pred_mask & target_mask).sum()
+            union = (pred_mask + target_mask).sum()
+            dice_score = (2 * intersection + 1e-8) / (union + 1e-8)
+            dice_score_per_class[cls] = iou_score 
+
+        return dice_score_per_class
 
     @torch.no_grad()
     @torch.inference_mode()
-    def calculate_accuracy(prediction, target, ignore_class=-1):
-        # Create a mask to ignore the specified class in the target
-        valid_mask = (target != ignore_class)
-        
-        # Compute the total number of valid pixels (not ignored)
-        total_valid_pixels = valid_mask.sum().item()
-        
-        if total_valid_pixels == 0:
-            return 0.0  # If there are no valid pixels, return 0 accuracy
-        
-        # Compute the number of correct predictions where the mask is valid
-        correct_predictions = (prediction == target) & valid_mask
-        correct_count = correct_predictions.sum().item()
-        
-        # Calculate accuracy as the ratio of correct valid predictions to total valid pixels
-        accuracy = correct_count / total_valid_pixels
-        
-        return accuracy
-
-    @torch.no_grad()
-    @torch.inference_mode()
-    def validate_cnn(valid_dataloader, model, loss_fn = None):
+    def validate_cnn(valid_dataloader, model, loss_fn = None, per_class=False):
         model.eval()
         valid_losses, valid_IoUs, valid_dice_scores, valid_accs = [],[],[],[]
         
         for batch in valid_dataloader:
             y_preds = model(batch["pixel_values"].to(CONSTS.DEVICE))
             
-            target = to_device(batch["pixel_mask"], CONSTS.DEVICE)
+            target = to_device(batch["augmented_pixel_mask"], CONSTS.DEVICE)
 
             # Calculate loss
-            # loss = loss_fn(y_preds, target)
             # Make probability distribution from the logits
             probabilities = torch.argmax(F.softmax(y_preds, dim=1), axis=1)
             
             # Calculate mean IoU
-            mean_IoU = Validate.calculate_iou(probabilities, target, y_preds.size(1))
+            mean_IoU = Validate.calculate_iou(probabilities, target, y_preds.size(1)-1, per_class=per_class)
             
             # Calculate Dice score
-            mean_dice = Validate.calculate_dice_score(probabilities, target, y_preds.size(1))
+            mean_dice = Validate.calculate_dice_score(probabilities, target, y_preds.size(1) -1, per_class=per_class)
 
-            acc = Validate.calculate_accuracy(probabilities, target, y_preds.size(1))
+            acc = Validate.calculate_accuracy(probabilities, target, y_preds.size(1) -1)
             # Store metrics
-            loss = loss_fn(y_preds, target) if loss_fn is not None else torch.tensor([0,0])
+            loss = loss_fn(y_preds, target) if loss_fn is not None else torch.tensor([0.,0])
 
             valid_accs.append(acc)
             valid_losses.append(loss)
             valid_IoUs.append(mean_IoU)
             valid_dice_scores.append(mean_dice)
 
+        if per_class:
+            # 0th element is variance , 1st element is the actual mean
+            valid_IoUs = torch.stack(valid_IoUs)
+            valid_iou = torch.mean(valid_IoUs,dim = 0).cpu().numpy()
+            valid_dice_scores = torch.stack(valid_dice_scores)
+            valid_dice_scores = torch.mean(valid_dice_scores,dim = 0).cpu().numpy()
+            return dict(zip(list(CONSTS.id2label.values()), valid_iou)), dict(zip(CONSTS.id2label.values(), valid_dice_scores)) 
         # Calculate mean metrics
         valid_loss = torch.mean(torch.stack(valid_losses)).item() 
         valid_iou = torch.mean(torch.stack(valid_IoUs)).item()
@@ -215,6 +268,57 @@ class Validate:
         
         return {
             "v loss": valid_loss, 
+            "v IoU": valid_iou, 
+            "v Dice": valid_dice,
+            "v Acc" : valid_acc
+        }
+
+    @torch.no_grad()
+    @torch.inference_mode()
+    def validate_vit(valid_dataloader, model, processor,per_class=False):
+        model.eval()
+        valid_IoUs, valid_dice_scores, valid_accs = [],[],[]
+        
+        for batch in valid_dataloader:
+            outputs = model(
+                        pixel_values=batch["pixel_values"].to(CONSTS.DEVICE),
+                        mask_labels=to_device(batch["mask_labels"], CONSTS.DEVICE),
+                        class_labels=to_device(batch["class_labels"], CONSTS.DEVICE),
+                    )
+            output_sizes = [(512, 512)] * outputs['masks_queries_logits'].size(0)
+            predicted_semantic_maps = (
+                    processor.post_process_semantic_segmentation(
+                    outputs, target_sizes=output_sizes
+                )
+            )
+            target = to_device(batch["augmented_pixel_mask"], CONSTS.DEVICE)
+            
+            probabilities = torch.stack(predicted_semantic_maps)
+            # Calculate mean IoU
+            mean_IoU = Validate.calculate_iou(probabilities, target,  per_class=per_class)
+            
+            # Calculate Dice score
+            mean_dice = Validate.calculate_dice_score(probabilities, target, per_class=per_class)
+
+            acc = Validate.calculate_accuracy(probabilities, target )
+            # Store metrics
+            valid_accs.append(acc)
+            valid_IoUs.append(mean_IoU)
+            valid_dice_scores.append(mean_dice)
+
+        if per_class:
+            valid_IoUs = torch.stack(valid_IoUs)
+            valid_iou = torch.mean(valid_IoUs, dim=0).cpu().numpy()
+            valid_dice_scores = torch.stack(valid_dice_scores)
+            valid_dice_scores = torch.mean(valid_dice_scores,dim = 0).cpu().numpy()
+            return dict(zip(list(CONSTS.id2label.values()), valid_iou)), dict(zip(CONSTS.id2label.values(), valid_dice_scores)) 
+
+        # Calculate mean metrics
+        valid_iou = torch.mean(torch.stack(valid_IoUs)).item()
+        valid_dice = torch.mean(torch.stack(valid_dice_scores)).item()
+        valid_acc = torch.mean(torch.tensor(valid_accs)).item()
+        
+        return {
             "v IoU": valid_iou, 
             "v Dice": valid_dice,
             "v Acc" : valid_acc
@@ -348,12 +452,8 @@ class IsaidDataset(Dataset):
         #some images have 4 channels, if not, then having more than 4 elements on last row would mean they are (H,W>4) image 
         # this is with assumption that there are no images less than 4 can to tensorpixel width
         if original_image.shape[-1] > 4: 
-            # print(f"Grayscale image found ::{real_image_file_name} :: {segment_image_file_name} :: idx :: {idx} shape :: {image.shape}")
             original_image = self.to_rgb(image=original_image)['image']
         elif original_image.shape[-1] == 4:
-            # print(f"aayo aayo 4 channel aayo ")
-            # print(f"aayo aayo 4 channel aayo ")
-            # print(f"4 channel image found ::{real_image_file_name} :: {segment_image_file_name} :: idx :: {idx} shape :: {image.shape}")
             original_image = self.rgba_to_rgb(original_image)
             
         augmentations = self.transforms(image=original_image, mask=original_segmentation_map)
