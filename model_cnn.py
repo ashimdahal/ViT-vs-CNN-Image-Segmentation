@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 import warnings
 warnings.filterwarnings("ignore")
  
@@ -35,8 +32,8 @@ class TrainingConfig:
     num_epochs = 40 
     LEARNING_RATE = 1e-3
     scaler = torch.cuda.amp.GradScaler()
-    accumulation_steps = 4
-    training_batch_size = 32
+    accumulation_steps = 8
+    training_batch_size = 16
 
 config = TrainingConfig()
 
@@ -77,7 +74,7 @@ def train(num_epochs, model, optimizer, loss_fn, train_dataloader, validation_da
         for batch_idx, batch in enumerate(train_dataloader):
             # data , targets = batch
             data = to_device(batch['pixel_values'], CONSTS.DEVICE)
-            targets = to_device(batch['pixel_mask'], CONSTS.DEVICE)
+            targets = to_device(batch['augmented_pixel_mask'], CONSTS.DEVICE)
             targets = targets.type(torch.long)
     
             # forward
@@ -110,6 +107,7 @@ def train(num_epochs, model, optimizer, loss_fn, train_dataloader, validation_da
                                   "validating":"..."
                                  })
         torch.cuda.empty_cache() 
+        model.eval()
         valid_res = Validate.validate_cnn(validation_dataloader, model, loss_fn)
        
         logs = {"train loss": train_loss[epoch], **valid_res}
@@ -127,7 +125,7 @@ def collate_fn(batch) -> dict:
 
     preprocessed_batch = {
         "pixel_values": transformed_images,
-        "pixel_mask" : transformed_segmentation_maps,
+        "augmented_pixel_mask" : transformed_segmentation_maps,
         "original_images" :original_images,
 
     }
@@ -186,7 +184,7 @@ def main():
         config.accumulation_steps
     )
 
-    torch.save({"hist":hist, "state_dict": model.state_dict()}, "model_cnn_v2.pt")
+    torch.save({"hist":hist, "state_dict": model.state_dict()}, "model_cnn_v3.pt")
 
 if __name__ == "__main__":
     main()
