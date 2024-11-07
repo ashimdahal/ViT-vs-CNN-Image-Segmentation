@@ -119,7 +119,7 @@ class Validate:
     @torch.no_grad()
     def calculate_dice_score(prediction, target, num_classes=15, ignore_index=CONSTS.ignore_index, per_class=False):
         if per_class:
-            return Validate.calculate_iou_per_class(prediction, target, num_classes)
+            return Validate.calculate_dice_score_per_class(prediction, target, num_classes)
         # Ignore predictions where target is ignore_index
         valid_mask = (target != ignore_index)
 
@@ -216,10 +216,10 @@ class Validate:
             pred_mask = pred_mask & valid_mask
             target_mask = target_mask & valid_mask
 
-            intersection = (pred_mask & target_mask).sum()
-            union = (pred_mask + target_mask).sum()
+            intersection = (pred_mask & target_mask).sum((1,2))
+            union = (pred_mask + target_mask).sum((1,2))
             dice_score = (2 * intersection + 1e-8) / (union + 1e-8)
-            dice_score_per_class[cls] = iou_score 
+            dice_score_per_class[cls] = torch.mean(dice_score) 
 
         return dice_score_per_class
 
