@@ -74,8 +74,8 @@ class CombinedLoss(nn.Module):
             pred_mask = pred_mask * valid_mask
             target_mask = target_mask * valid_mask
 
-            intersection = (pred_mask * target_mask).sum((1,2))
-            union = pred_mask.sum((1,2)) + target_mask.sum((1,2))
+            intersection = (pred_mask * target_mask).sum())
+            union = pred_mask.sum((1,2)) + target_mask.sum())
 
             dice_score = (2 * intersection + self.SMOOTH) / (union + self.SMOOTH)
             dice_loss = 1 - dice_score  # Dice loss is 1 - Dice score
@@ -98,8 +98,8 @@ class CombinedLoss(nn.Module):
             pred_mask = pred_mask * valid_mask
             target_mask = target_mask * valid_mask
 
-            intersection = (pred_mask * target_mask).sum((1,2))
-            union = (pred_mask + target_mask - pred_mask * target_mask).sum((1,2))
+            intersection = (pred_mask * target_mask).sum())
+            union = (pred_mask + target_mask - pred_mask * target_mask).sum())
 
             iou_score = (intersection +self.SMOOTH)/ (union+self.SMOOTH)
             iou_loss = 1 - iou_score  # IoU loss is 1 - IoU score
