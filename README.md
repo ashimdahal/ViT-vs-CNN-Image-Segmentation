@@ -2,3 +2,5 @@
 
 
 Arxiv paper here: https://arxiv.org/abs/2411.09101
+
+## Accepted on: IEEE Sensors (IF: 4.3)
