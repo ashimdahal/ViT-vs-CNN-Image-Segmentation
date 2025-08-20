@@ -3,4 +3,6 @@
 
 Arxiv paper here: https://arxiv.org/abs/2411.09101
 
-## Accepted on: IEEE Sensors (IF: 4.3)
+## Accepted on: IEEE Sensors (IF: 4.5)
+
+IEEE Xplore Paper: https://ieeexplore.ieee.org/abstract/document/10959005
